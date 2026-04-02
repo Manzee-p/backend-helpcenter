@@ -5,12 +5,9 @@ namespace App\Http\Controllers;
 use App\Models\Ticket;
 use App\Models\TicketAttachment;
 use App\Models\SlaTracking;
-use App\Models\Comment;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Facades\DB;
 use App\Models\User;
 use App\Http\Controllers\NotificationController;
 
@@ -19,7 +16,7 @@ class TicketController extends Controller
 {
     public function index(Request $request)
     {
-        $query = Ticket::with(['user', 'category', 'assignedTo', 'createdByAdmin']);
+        $query = Ticket::with(['user', 'category', 'assignedTo', 'createdByAdmin', 'feedback']);
 
         $user = $request->user();
 
@@ -269,9 +266,6 @@ class TicketController extends Controller
                 'category',
                 'assignedTo',
                 'attachments',
-                'comments' => function($query) {
-                    $query->with('user')->orderBy('created_at', 'asc');
-                },
                 'feedback',
                 'slaTracking'
             ])->find($id);
@@ -436,163 +430,6 @@ class TicketController extends Controller
                 'actual_resolution_time' => $actualTime,
                 'resolution_sla_met' => $actualTime <= $sla->resolution_time_sla,
             ]);
-        }
-    }
-
-    public function getComments($ticketId)
-    {
-        try {
-            Log::info('Fetching comments for ticket: ' . $ticketId);
-            
-            $ticket = Ticket::findOrFail($ticketId);
-            $user = Auth::user();
-            
-            if ($user->role === 'client' && $ticket->user_id !== $user->id) {
-                return response()->json([
-                    'message' => 'You do not have access to this ticket'
-                ], 403);
-            }
-            
-            if ($user->role === 'vendor' && $ticket->assigned_to !== $user->id) {
-                return response()->json([
-                    'message' => 'You are not assigned to this ticket'
-                ], 403);
-            }
-            
-            if (!class_exists(Comment::class)) {
-                Log::warning('Comment model does not exist, returning empty array');
-                return response()->json([]);
-            }
-            
-            $comments = Comment::with('user')
-                ->where('ticket_id', $ticketId)
-                ->orderBy('created_at', 'asc')
-                ->get();
-            
-            if ($user->role === 'client') {
-                $comments = $comments->filter(function($comment) {
-                    return !$comment->is_internal;
-                })->values();
-            }
-            
-            Log::info('Found ' . $comments->count() . ' comments');
-            
-            return response()->json($comments);
-            
-        } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
-            Log::error('Ticket not found: ' . $ticketId);
-            return response()->json([
-                'message' => 'Ticket not found'
-            ], 404);
-        } catch (\Exception $e) {
-            Log::error('Error fetching comments: ' . $e->getMessage());
-            return response()->json([]);
-        }
-    }
-
-    public function addComment(Request $request, $ticketId)
-    {
-        try {
-            Log::info('Adding comment to ticket: ' . $ticketId);
-            
-            $validated = $request->validate([
-                'comment' => 'required|string|min:1',
-                'is_internal' => 'sometimes|boolean'
-            ]);
-            
-            $ticket = Ticket::findOrFail($ticketId);
-            $user = Auth::user();
-            
-            if ($user->role === 'client' && $ticket->user_id !== $user->id) {
-                return response()->json([
-                    'message' => 'You do not have access to this ticket'
-                ], 403);
-            }
-            
-            if ($user->role === 'vendor' && $ticket->assigned_to !== $user->id) {
-                return response()->json([
-                    'message' => 'You are not assigned to this ticket'
-                ], 403);
-            }
-            
-            if (!class_exists(Comment::class)) {
-                Log::error('Comment model does not exist');
-                return response()->json([
-                    'message' => 'Comment feature is not available. Please contact administrator.'
-                ], 500);
-            }
-            
-            if ($user->role === 'client') {
-                $validated['is_internal'] = false;
-            }
-            
-            $comment = Comment::create([
-                'ticket_id' => $ticketId,
-                'user_id' => $user->id,
-                'comment' => $validated['comment'],
-                'is_internal' => $validated['is_internal'] ?? false
-            ]);
-            
-            $comment->load('user');
-            
-            if (in_array($user->role, ['admin', 'vendor']) && !$ticket->first_response_at) {
-                $ticket->first_response_at = now();
-                $ticket->save();
-                
-                if ($ticket->slaTracking) {
-                    $sla = $ticket->slaTracking;
-                    $actualResponseTime = (int) round(
-                        $ticket->created_at->diffInMinutes($ticket->first_response_at)
-                    );
-                    $sla->actual_response_time = $actualResponseTime;
-                    $sla->response_sla_met = $actualResponseTime <= $sla->response_time_sla;
-                    $sla->save();
-                }
-            }
-            
-            try {
-                if ($user->role === 'client') {
-                    if ($ticket->assigned_to) {
-                        NotificationController::createNotification(
-                            $ticket->assigned_to,
-                            'new_comment',
-                            'New Comment on Ticket',
-                            "Client added a comment on ticket: {$ticket->title}",
-                            $ticket->id
-                        );
-                    }
-                } else {
-                    if (!($validated['is_internal'] ?? false)) {
-                        NotificationController::createNotification(
-                            $ticket->user_id,
-                            'new_comment',
-                            'New Response to Your Ticket',
-                            "There's a new response on your ticket: {$ticket->title}",
-                            $ticket->id
-                        );
-                    }
-                }
-            } catch (\Exception $e) {
-                Log::warning('Failed to send notification: ' . $e->getMessage());
-            }
-            
-            return response()->json([
-                'message' => 'Comment added successfully',
-                'comment' => $comment
-            ], 201);
-            
-        } catch (\Illuminate\Validation\ValidationException $e) {
-            return response()->json([
-                'message' => 'Validation failed',
-                'errors' => $e->errors()
-            ], 422);
-        } catch (\Exception $e) {
-            Log::error('Error adding comment: ' . $e->getMessage());
-            
-            return response()->json([
-                'message' => 'Failed to add comment. Please try again.',
-                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error'
-            ], 500);
         }
     }
 }

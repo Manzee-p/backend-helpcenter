@@ -25,12 +25,14 @@ class TicketCategorySeeder extends Seeder
         ];  
 
         foreach ($categories as $category) {
-            TicketCategory::create([
-                'name' => $category['name'],
-                'slug' => Str::slug($category['name']),
-                'description' => $category['description'],
-                'is_active' => true,
-            ]);
+            TicketCategory::updateOrCreate(
+                ['slug' => Str::slug($category['name'])],
+                [
+                    'name' => $category['name'],
+                    'description' => $category['description'],
+                    'is_active' => true,
+                ]
+            );
         }
     }
 }

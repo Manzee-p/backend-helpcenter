@@ -80,11 +80,6 @@ class Ticket extends Model
         return $this->hasMany(TicketAttachment::class);
     }
 
-    public function comments()
-    {
-        return $this->hasMany(Comment::class, 'ticket_id');
-    }
-
     public function feedback()
     {
         return $this->hasOne(Feedback::class);

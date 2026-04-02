@@ -6,13 +6,13 @@ use App\Http\Controllers\TicketController;
 use App\Http\Controllers\AdminController;
 use App\Http\Controllers\VendorController;
 use App\Http\Controllers\ClientController;
-use App\Http\Controllers\CommentController;
 use App\Http\Controllers\TicketCategoryController;
 use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\VendorReportController;
 use App\Http\Controllers\AdminSettingsController;
-use App\Http\Controllers\ClientSettingsController;
 use App\Http\Controllers\StatusBoardController;
+use App\Http\Controllers\VendorRatingController;
+use App\Http\Controllers\ClientSettingsController;
 
 // ==================== PUBLIC ROUTES (NO AUTH) ====================
 Route::post('/login', [AuthController::class, 'login']);
@@ -66,6 +66,9 @@ Route::middleware('auth:sanctum')->group(function () {
         // Analytics & Reports
         Route::get('/analytics', [AdminController::class, 'getAnalytics']);
         Route::get('/reports', [AdminController::class, 'getSystemReports']);
+        Route::get('/vendor-ratings', [VendorRatingController::class, 'adminIndex']);
+        Route::post('/vendor-ratings/{vendorId}/warning', [VendorRatingController::class, 'sendAdminWarning']);
+        Route::delete('/vendor-ratings/{id}', [VendorRatingController::class, 'destroy']);
         
         // Vendor Reports
         Route::get('/vendor-reports', [VendorReportController::class, 'index']);
@@ -110,13 +113,10 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/tickets', [VendorController::class, 'myTickets']);
         Route::get('/tickets/{id}', [VendorController::class, 'show']);
         
-        // ✅ PERBAIKAN: Route khusus untuk vendor mengambil comments (filtered)
-        // Route ini memfilter internal notes dari admin agar vendor tidak bisa lihat
-        Route::get('/tickets/{id}/comments', [VendorController::class, 'getTicketComments']);
-        
         Route::patch('/tickets/{id}/status', [VendorController::class, 'updateTicketStatus']);
         Route::get('/performance', [VendorController::class, 'performance']);
         Route::get('/history', [VendorController::class, 'history']);
+        Route::get('/ratings', [VendorRatingController::class, 'vendorIndex']);
         Route::get('/ticket-stats', [VendorController::class, 'ticketStats']);
         Route::put('/profile', [VendorController::class, 'updateProfile']);
         Route::post('/change-password', [VendorController::class, 'changePassword']);
@@ -130,23 +130,19 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/tickets', [ClientController::class, 'myTickets']);
         Route::post('/tickets/{ticket}/feedback', [ClientController::class, 'submitFeedback']);
         Route::get('/tickets/history', [ClientController::class, 'ticketHistory']);
-    });
-
-    // ==================== CLIENT SETTINGS ====================
-    Route::middleware(['auth:sanctum', 'role:client'])->prefix('client/settings')->group(function () {
-        Route::post('/profile', [ClientSettingsController::class, 'updateProfile']);
-        Route::delete('/avatar', [ClientSettingsController::class, 'deleteAvatar']);
-        Route::post('/password', [ClientSettingsController::class, 'changePassword']);
-        Route::get('/communications', [ClientSettingsController::class, 'getCommunications']);
-        Route::get('/last-login', [ClientSettingsController::class, 'getLastLogin']);
-        Route::post('/support', [ClientSettingsController::class, 'sendSupportMessage']);
-        Route::post('/notifications', [ClientSettingsController::class, 'saveNotifications']);
-        Route::post('/preferences', [ClientSettingsController::class, 'savePreferences']);
-        Route::get('/export-data', [ClientSettingsController::class, 'exportData']);
+        Route::prefix('settings')->group(function () {
+            Route::post('/profile', [ClientSettingsController::class, 'updateProfile']);
+            Route::delete('/avatar', [ClientSettingsController::class, 'deleteAvatar']);
+            Route::post('/password', [ClientSettingsController::class, 'changePassword']);
+            Route::get('/communications', [ClientSettingsController::class, 'getCommunications']);
+            Route::get('/last-login', [ClientSettingsController::class, 'getLastLogin']);
+            Route::post('/support', [ClientSettingsController::class, 'sendSupportMessage']);
+            Route::post('/notifications', [ClientSettingsController::class, 'saveNotifications']);
+            Route::post('/preferences', [ClientSettingsController::class, 'savePreferences']);
+            Route::get('/export-data', [ClientSettingsController::class, 'exportData']);
+        });
     });
 
     // Tickets (All authenticated users)
     Route::apiResource('tickets', TicketController::class);
-    Route::get('/tickets/{id}/comments', [TicketController::class, 'getComments']);
-    Route::post('/tickets/{id}/comments', [TicketController::class, 'addComment']);
 });

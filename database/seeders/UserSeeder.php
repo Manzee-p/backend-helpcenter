@@ -15,46 +15,56 @@ class UserSeeder extends Seeder
     public function run()
     {
         // Admin
-        User::create([
-            'name' => 'Admin Helpdesk',
-            'email' => 'admin@helpdesk.com',
-            'phone' => '081234567890',
-            'password' => Hash::make('password'),
-            'role' => 'admin',
-        ]);
+        User::updateOrCreate(
+            ['email' => 'admin@helpdesk.com'],
+            [
+                'name' => 'Admin Helpdesk',
+                'phone' => '081234567890',
+                'password' => Hash::make('password'),
+                'role' => 'admin',
+            ]
+        );
 
         // Vendors
-        User::create([
-            'name' => 'Vendor Sound System',
-            'email' => 'vendor.sound@helpdesk.com',
-            'phone' => '081234567891',
-            'password' => Hash::make('password'),
-            'role' => 'vendor',
-        ]);
+        User::updateOrCreate(
+            ['email' => 'vendor.sound@helpdesk.com'],
+            [
+                'name' => 'Vendor Sound System',
+                'phone' => '081234567891',
+                'password' => Hash::make('password'),
+                'role' => 'vendor',
+            ]
+        );
 
-        User::create([
-            'name' => 'Vendor Lighting',
-            'email' => 'vendor.lighting@helpdesk.com',
-            'phone' => '081234567892',
-            'password' => Hash::make('password'),
-            'role' => 'vendor',
-        ]);
+        User::updateOrCreate(
+            ['email' => 'vendor.lighting@helpdesk.com'],
+            [
+                'name' => 'Vendor Lighting',
+                'phone' => '081234567892',
+                'password' => Hash::make('password'),
+                'role' => 'vendor',
+            ]
+        );
 
         // Clients
-        User::create([
-            'name' => 'Rina Pratama',
-            'email' => 'rina@company.com',
-            'phone' => '081234567893',
-            'password' => Hash::make('password'),
-            'role' => 'client',
-        ]);
+        User::updateOrCreate(
+            ['email' => 'rina@company.com'],
+            [
+                'name' => 'Rina Pratama',
+                'phone' => '081234567893',
+                'password' => Hash::make('password'),
+                'role' => 'client',
+            ]
+        );
 
-        User::create([
-            'name' => 'Budi Santoso',
-            'email' => 'budi@company.com',
-            'phone' => '081234567894',
-            'password' => Hash::make('password'),
-            'role' => 'client',
-        ]);
+        User::updateOrCreate(
+            ['email' => 'budi@company.com'],
+            [
+                'name' => 'Budi Santoso',
+                'phone' => '081234567894',
+                'password' => Hash::make('password'),
+                'role' => 'client',
+            ]
+        );
     }
 }

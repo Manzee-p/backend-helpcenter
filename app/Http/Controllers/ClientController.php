@@ -18,7 +18,7 @@ class ClientController extends Controller
         try {
             Log::info('Fetching tickets for client: ' . Auth::id());
 
-            $query = Ticket::with(['category', 'assignedTo', 'slaTracking', 'attachments'])
+            $query = Ticket::with(['category', 'assignedTo', 'slaTracking', 'attachments', 'feedback'])
                 ->where('user_id', Auth::id());
 
             // Filter by status
@@ -35,9 +35,9 @@ class ClientController extends Controller
             if ($request->filled('search')) {
                 $search = $request->search;
                 $query->where(function($q) use ($search) {
-                    $q->where('title', 'ILIKE', "%{$search}%")
-                      ->orWhere('ticket_number', 'ILIKE', "%{$search}%")
-                      ->orWhere('description', 'ILIKE', "%{$search}%");
+                    $q->where('title', 'like', "%{$search}%")
+                      ->orWhere('ticket_number', 'like', "%{$search}%")
+                      ->orWhere('description', 'like', "%{$search}%");
                 });
             }
 
@@ -230,8 +230,8 @@ class ClientController extends Controller
             if ($request->filled('search')) {
                 $search = $request->search;
                 $query->where(function($q) use ($search) {
-                    $q->where('title', 'ILIKE', "%{$search}%")
-                      ->orWhere('ticket_number', 'ILIKE', "%{$search}%");
+                    $q->where('title', 'like', "%{$search}%")
+                      ->orWhere('ticket_number', 'like', "%{$search}%");
                 });
             }
 

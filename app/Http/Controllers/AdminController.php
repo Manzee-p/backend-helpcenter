@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\User;
 use App\Models\Ticket;
+use App\Models\Feedback;
 use App\Models\TicketAttachment;
 use Illuminate\Http\Request;
 use App\Models\SlaTracking;
@@ -12,6 +13,7 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\Schema;
 use Carbon\Carbon;
 
 class AdminController extends Controller
@@ -113,46 +115,60 @@ class AdminController extends Controller
             $startDate = $request->input('start_date', Carbon::now()->subMonths(6)->format('Y-m-d'));
             $endDate = $request->input('end_date', Carbon::now()->format('Y-m-d'));
 
-            // Convert to Carbon
             $startDate = Carbon::parse($startDate)->startOfDay();
             $endDate = Carbon::parse($endDate)->endOfDay();
 
-            Log::info("Analytics request - From: {$startDate}, To: {$endDate}");
+            Log::info('Analytics request', [
+                'start' => $startDate->toDateString(),
+                'end' => $endDate->toDateString(),
+            ]);
 
-            // Tickets by Status
             $ticketsByStatus = Ticket::selectRaw('status, COUNT(*) as count')
                 ->whereBetween('created_at', [$startDate, $endDate])
                 ->groupBy('status')
-                ->get();
+                ->get()
+                ->map(function ($item) {
+                    return [
+                        'status' => $item->status,
+                        'count' => (int) $item->count,
+                    ];
+                })
+                ->values();
 
-            // Tickets by Priority
             $ticketsByPriority = Ticket::selectRaw('priority, COUNT(*) as count')
                 ->whereNotNull('priority')
                 ->whereBetween('created_at', [$startDate, $endDate])
                 ->groupBy('priority')
-                ->get();
-
-            // Tickets by Category - Use Query Builder for PostgreSQL compatibility
-            $categoryData = DB::table('tickets as t')
-                ->join('ticket_categories as tc', 't.category_id', '=', 'tc.id')
-                ->selectRaw('tc.name, COUNT(t.id) as count')
-                ->whereBetween('t.created_at', [$startDate, $endDate])
-                ->whereNull('t.deleted_at')
-                ->groupBy('tc.name')
-                ->get();
+                ->get()
+                ->map(function ($item) {
+                    return [
+                        'priority' => $item->priority,
+                        'count' => (int) $item->count,
+                    ];
+                })
+                ->values();
 
             $ticketsByCategory = [];
-            foreach ($categoryData as $item) {
-                $ticketsByCategory[$item->name] = (int) $item->count;
+            if (Schema::hasColumn('tickets', 'category_id')) {
+                $categoryData = DB::table('tickets as t')
+                    ->join('ticket_categories as tc', 't.category_id', '=', 'tc.id')
+                    ->selectRaw('tc.name, COUNT(t.id) as count')
+                    ->whereBetween('t.created_at', [$startDate, $endDate])
+                    ->whereNull('t.deleted_at')
+                    ->groupBy('tc.id', 'tc.name')
+                    ->get();
+
+                foreach ($categoryData as $item) {
+                    $ticketsByCategory[$item->name] = (int) $item->count;
+                }
             }
 
-            // Monthly Tickets - Use TO_CHAR for PostgreSQL
             $monthlyData = DB::table('tickets')
-                ->selectRaw("TO_CHAR(created_at, 'YYYY-MM') as month, COUNT(*) as count")
+                ->selectRaw("DATE_FORMAT(created_at, '%Y-%m') as month, COUNT(*) as count")
                 ->whereBetween('created_at', [$startDate, $endDate])
                 ->whereNull('deleted_at')
-                ->groupBy('month')
-                ->orderBy('month')
+                ->groupByRaw("DATE_FORMAT(created_at, '%Y-%m')")
+                ->orderByRaw("DATE_FORMAT(created_at, '%Y-%m')")
                 ->get();
 
             $monthlyTickets = [];
@@ -160,7 +176,10 @@ class AdminController extends Controller
                 $monthlyTickets[$item->month] = (int) $item->count;
             }
 
-            // Average Resolution Time
+            if (empty($monthlyTickets)) {
+                $monthlyTickets[$startDate->format('Y-m')] = 0;
+            }
+
             $avgResolutionTime = DB::table('sla_trackings as s')
                 ->join('tickets as t', 's.ticket_id', '=', 't.id')
                 ->whereBetween('t.created_at', [$startDate, $endDate])
@@ -168,13 +187,6 @@ class AdminController extends Controller
                 ->where('s.actual_resolution_time', '>', 0)
                 ->whereNull('t.deleted_at')
                 ->avg('s.actual_resolution_time');
-
-            Log::info("Analytics generated successfully", [
-                'status_count' => $ticketsByStatus->count(),
-                'priority_count' => $ticketsByPriority->count(),
-                'category_count' => count($ticketsByCategory),
-                'monthly_count' => count($monthlyTickets)
-            ]);
 
             return response()->json([
                 'tickets_by_status' => $ticketsByStatus,
@@ -209,15 +221,17 @@ class AdminController extends Controller
         try {
             $periodType = $request->input('period_type', 'monthly');
             $startDate = $request->input('start_date', Carbon::now()->subMonths(6)->format('Y-m-d'));
-            $endDate = $request->input('end_date', Carbon::now()->format('Y-m-d')); 
+            $endDate = $request->input('end_date', Carbon::now()->format('Y-m-d'));
 
-            // Convert to Carbon
             $startDate = Carbon::parse($startDate)->startOfDay();
             $endDate = Carbon::parse($endDate)->endOfDay();
 
-            Log::info("Reports request - Period: {$periodType}, From: {$startDate}, To: {$endDate}");
+            Log::info('Reports request', [
+                'period' => $periodType,
+                'start' => $startDate->toDateString(),
+                'end' => $endDate->toDateString(),
+            ]);
 
-            // Overall Summary
             $totalTickets = Ticket::whereBetween('created_at', [$startDate, $endDate])->count();
             $resolvedTickets = Ticket::whereIn('status', ['resolved', 'closed'])
                 ->whereBetween('created_at', [$startDate, $endDate])
@@ -227,9 +241,12 @@ class AdminController extends Controller
                 'total_tickets' => $totalTickets,
                 'resolved_tickets' => $resolvedTickets,
                 'resolution_rate' => $totalTickets > 0 ? round(($resolvedTickets / $totalTickets) * 100, 2) : 0,
+                'average_satisfaction' => round((float) Feedback::whereBetween('created_at', [$startDate, $endDate])->avg('rating'), 2),
+                'low_rating_total' => Feedback::whereBetween('created_at', [$startDate, $endDate])
+                    ->where('rating', '<=', 2)
+                    ->count(),
             ];
 
-            // Top Vendors - FIXED for PostgreSQL
             $topVendorsData = Ticket::selectRaw("
                     assigned_to,
                     COUNT(*) as total_tickets,
@@ -257,13 +274,47 @@ class AdminController extends Controller
                 }
             }
 
-            // Resolution Time Trend - PostgreSQL compatible
-            $dateFormat = $periodType === 'monthly' ? 'YYYY-MM' : 'IYYY-IW';
-            
+            $vendorSatisfaction = DB::table('feedbacks as f')
+                ->join('tickets as t', 'f.ticket_id', '=', 't.id')
+                ->join('users as u', 't.assigned_to', '=', 'u.id')
+                ->selectRaw("
+                    u.id,
+                    u.name,
+                    u.company_name,
+                    AVG(f.rating) as average_rating,
+                    COUNT(f.id) as total_feedbacks,
+                    SUM(CASE WHEN f.rating <= 2 THEN 1 ELSE 0 END) as low_rating_count
+                ")
+                ->whereNotNull('t.assigned_to')
+                ->whereBetween('f.created_at', [$startDate, $endDate])
+                ->groupBy('u.id', 'u.name', 'u.company_name')
+                ->orderByDesc('average_rating')
+                ->get()
+                ->map(function ($item) {
+                    return [
+                        'id' => $item->id,
+                        'name' => $item->name,
+                        'company_name' => $item->company_name,
+                        'average_rating' => round((float) $item->average_rating, 2),
+                        'total_feedbacks' => (int) $item->total_feedbacks,
+                        'low_rating_count' => (int) $item->low_rating_count,
+                    ];
+                })
+                ->values();
+
+            $warningSummary = [
+                'total_warnings' => 0,
+                'system_warnings' => 0,
+                'admin_warnings' => 0,
+                'vendors_under_warning' => 0,
+            ];
+
+            $dateFormat = $periodType === 'monthly' ? '%Y-%m' : '%Y-W%v';
+
             $resolutionTrendRaw = DB::table('tickets as t')
                 ->join('sla_trackings as s', 't.id', '=', 's.ticket_id')
                 ->selectRaw("
-                    TO_CHAR(t.created_at, '{$dateFormat}') as period,
+                    DATE_FORMAT(t.created_at, '{$dateFormat}') as period,
                     AVG(s.actual_resolution_time) as avg_resolution_time,
                     COUNT(DISTINCT t.id) as ticket_count
                 ")
@@ -271,15 +322,18 @@ class AdminController extends Controller
                 ->whereNotNull('s.actual_resolution_time')
                 ->where('s.actual_resolution_time', '>', 0)
                 ->whereNull('t.deleted_at')
-                ->groupByRaw("TO_CHAR(t.created_at, '{$dateFormat}')")
-                ->orderByRaw("TO_CHAR(t.created_at, '{$dateFormat}')")
+                ->groupByRaw("DATE_FORMAT(t.created_at, '{$dateFormat}')")
+                ->orderByRaw("DATE_FORMAT(t.created_at, '{$dateFormat}')")
                 ->get();
 
             $resolutionTrend = [];
             foreach ($resolutionTrendRaw as $item) {
-                $minutes = abs($item->avg_resolution_time);
-                
-                // Categorize: Fast < 12h, Average 12-24h, Slow >= 24h
+                $minutes = abs((float) $item->avg_resolution_time);
+
+                if ($minutes <= 0 || is_nan($minutes)) {
+                    continue;
+                }
+
                 if ($minutes < 720) {
                     $category = 'fastest';
                 } elseif ($minutes < 1440) {
@@ -287,24 +341,27 @@ class AdminController extends Controller
                 } else {
                     $category = 'slowest';
                 }
-                
+
                 $resolutionTrend[] = [
                     'period' => $item->period,
-                    'avg_resolution_time' => round($item->avg_resolution_time, 2),
+                    'avg_resolution_time' => round((float) $item->avg_resolution_time, 2),
                     'ticket_count' => (int) $item->ticket_count,
                     'category' => $category
                 ];
             }
 
-            Log::info("Reports generated successfully", [
+            Log::info('Reports generated successfully', [
                 'summary' => $summary,
                 'vendors_count' => count($topVendors),
-                'trend_count' => count($resolutionTrend)
+                'satisfaction_count' => $vendorSatisfaction->count(),
+                'trend_count' => count($resolutionTrend),
             ]);
 
             return response()->json([
                 'summary' => $summary,
                 'top_vendors' => $topVendors,
+                'vendor_satisfaction' => $vendorSatisfaction,
+                'warning_summary' => $warningSummary,
                 'resolution_trend' => $resolutionTrend,
                 'period_type' => $periodType,
                 'date_range' => [

@@ -23,6 +23,7 @@ class DatabaseSeeder extends Seeder
             NotificationSeeder::class, // NEW
             VendorReportSeeder::class, // NEW
             VendorCompleteSeeder::class,
+            VendorRatingSeeder::class,
             StatusBoardSeeder::class,
         ]);
     }

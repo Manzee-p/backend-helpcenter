@@ -195,11 +195,6 @@ class User extends Authenticatable
         return $this->hasMany(Ticket::class, 'assigned_to');
     }
 
-    public function comments()
-    {
-        return $this->hasMany(Comment::class);
-    }
-
     public function feedbacks()
     {
         return $this->hasMany(Feedback::class);
@@ -213,6 +208,11 @@ class User extends Authenticatable
     public function vendorReports()
     {
         return $this->hasMany(VendorReport::class, 'vendor_id');
+    }
+
+    public function vendorWarnings()
+    {
+        return $this->hasMany(VendorWarning::class, 'vendor_id');
     }
 
     public function unreadNotifications()

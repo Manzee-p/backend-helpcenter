@@ -16,6 +16,11 @@ class TicketSeeder extends Seeder
      */
     public function run()
     {
+        if (Ticket::query()->exists()) {
+            $this->command->info('TicketSeeder skipped: data tiket sudah ada.');
+            return;
+        }
+
         // Get users
         $clients = User::where('role', 'client')->pluck('id')->toArray();
         $vendors = User::whereIn('role', ['vendor', 'admin'])->pluck('id')->toArray();
